@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Content Insight Engine</title>
+    <!-- Tailwind CSS CDN - Moved here to be loaded once by the browser -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts for Inter - Moved here to be loaded once by the browser -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Optional: Add custom styles here if needed, or rely solely on Tailwind */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+
+    <!-- Load React and ReactDOM Libraries from CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <!-- Load Babel for JSX transpilation in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Your React App Component (type="text/babel" is crucial for in-browser transpilation) -->
+    <script type="text/babel">
+        // Import useState from the global React object when using Babel standalone
+        const { useState } = React;
+
+        // Main App component
+        const App = () => {
+            // State variables for text input and analysis results
+            const [textContent, setTextContent] = useState('');
+            const [comparisonText, setComparisonText] = useState('');
+            const [analysisResults, setAnalysisResults] = useState(null);
+            const [isLoading, setIsLoading] = useState(false);
+            const [error, setError] = useState('');
+
+            // State for selected analysis types
+            const [enableCosineSimilarity, setEnableCosineSimilarity] = useState(false);
+            const [enableWordEmbedding, setEnableWordEmbedding] = useState(false);
+            const [enableLinguisticAnalytics, setEnableLinguisticAnalytics] = useState(false);
+            const [enableContentAnalysis, setEnableContentAnalysis] = useState(false);
+            const [enableComprehensionAnalysis, setEnableComprehensionAnalysis] = useState(false);
+            const [enableSeoAnalysis, setEnableSeoAnalysis] = useState(false);
+
+            // Placeholder for target keyword for SEO analysis
+            const [targetKeyword, setTargetKeyword] = useState('');
+
+            // Function to perform content analysis using Gemini API and client-side logic
+            const performAnalysis = async () => {
+                setIsLoading(true);
+                setError('');
+                setAnalysisResults(null);
+
+                if (!textContent.trim()) {
+                    setError("Please enter some content to analyze.");
+                    setIsLoading(false);
+                    return;
+                }
+
+                try {
+                    const results = {};
+                    const apiKey = ""; // Canvas will automatically provide the API key at runtime
+
+                    // 1. Cosine Similarity (Client-side, Bag-of-Words)
+                    if (enableCosineSimilarity) {
+                        if (!comparisonText.trim()) {
+                            results.cosineSimilarity = { score: 'N/A', message: 'Please provide comparison text for cosine similarity.' };
+                        } else {
+                            const similarityScore = calculateBagOfWordsSimilarity(textContent, comparisonText);
+                            results.cosineSimilarity = {
+                                score: `${similarityScore.toFixed(2)}%`,
+                                message: `The bag-of-words similarity between your main content and comparison text is approximately ${similarityScore.toFixed(2)}%. For deeper semantic similarity, consider using a dedicated word embedding model.`
+                            };
+                        }
+                    }
+
+                    // 2. Word Embedding Analysis (via Gemini API for key terms and semantic summary)
+                    if (enableWordEmbedding) {
+                        try {
+                            const chatHistory = [];
+                            chatHistory.push({ role: "user", parts: [{ text: `Analyze the following text for its core topics, key entities, and semantic insights. Provide a list of the top 5-7 key terms/phrases and a brief summary of the main semantic themes. Respond in JSON. Text: "${textContent}"` }] });
+                            const payload = {
+                                contents: chatHistory,
+                                generationConfig: {
+                                    responseMimeType: "application/json",
+                                    responseSchema: {
+                                        type: "OBJECT",
+                                        properties: {
+                                            "keyTerms": {
+                                                type: "ARRAY",
+                                                items: { "type": "STRING" }
+                                            },
+                                            "semanticSummary": { "type": "STRING" }
+                                        },
+                                        propertyOrdering: ["keyTerms", "semanticSummary"]
+                                    }
+                                }
+                            };
+                            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                            const response = await fetch(apiUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const result = await response.json();
+
+                            if (result.candidates && result.candidates.length > 0 &&
+                                result.candidates[0].content && result.candidates[0].content.parts &&
+                                result.candidates[0].content.parts.length > 0) {
+                                const json = result.candidates[0].content.parts[0].text;
+                                const parsedJson = JSON.parse(json);
+                                results.wordEmbedding = {
+                                    keyTerms: parsedJson.keyTerms ? parsedJson.keyTerms.join(', ') : 'N/A',
+                                    semanticSummary: parsedJson.semanticSummary || 'N/A',
+                                    message: 'Key terms and semantic summary generated using Gemini API for word embedding analysis.'
+                                };
+                            } else {
+                                results.wordEmbedding = { keyTerms: 'Error', semanticSummary: 'Error', message: 'Failed to get results from Gemini API.' };
+                            }
+                        } catch (apiError) {
+                            console.error("Gemini API error for word embedding:", apiError);
+                            results.wordEmbedding = { keyTerms: 'Error', semanticSummary: 'Error', message: `API Error: ${apiError.message}` };
+                        }
+                    }
+
+                    // 3. Linguistic Analytics (via Gemini API for sentiment and complexity)
+                    if (enableLinguisticAnalytics) {
+                        try {
+                            const chatHistory = [];
+                            chatHistory.push({ role: "user", parts: [{ text: `Perform a linguistic analysis of the following text. Determine its overall sentiment (positive, negative, neutral) and provide an assessment of its linguistic complexity, including suggestions for making it more or less complex if needed. Respond in JSON. Text: "${textContent}"` }] });
+                            const payload = {
+                                contents: chatHistory,
+                                generationConfig: {
+                                    responseMimeType: "application/json",
+                                    responseSchema: {
+                                        type: "OBJECT",
+                                        properties: {
+                                            "sentiment": { "type": "STRING" },
+                                            "complexityAssessment": { "type": "STRING" },
+                                            "complexitySuggestions": { "type": "STRING" }
+                                        },
+                                        propertyOrdering: ["sentiment", "complexityAssessment", "complexitySuggestions"]
+                                    }
+                                }
+                            };
+                            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                            const response = await fetch(apiUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const result = await response.json();
+
+                            if (result.candidates && result.candidates.length > 0 &&
+                                result.candidates[0].content && result.candidates[0].content.parts &&
+                                result.candidates[0].content.parts.length > 0) {
+                                const json = result.candidates[0].content.parts[0].text;
+                                const parsedJson = JSON.parse(json);
+
+                                const { avgSentenceLength, avgWordLength } = performClientSideLinguisticAnalysis(textContent); // Keep client-side basic metrics
+
+                                results.linguisticAnalytics = {
+                                    avgSentenceLength: `${avgSentenceLength} words`,
+                                    avgWordLength: `${avgWordLength.toFixed(1)} chars`,
+                                    sentiment: parsedJson.sentiment || 'N/A',
+                                    complexityAssessment: parsedJson.complexityAssessment || 'N/A',
+                                    complexitySuggestions: parsedJson.complexitySuggestions || 'N/A',
+                                    message: 'Linguistic insights generated using Gemini API and client-side metrics.'
+                                };
+                            } else {
+                                results.linguisticAnalytics = {
+                                    avgSentenceLength: 'Error', avgWordLength: 'Error', sentiment: 'Error',
+                                    complexityAssessment: 'Error', complexitySuggestions: 'Error',
+                                    message: 'Failed to get results from Gemini API.'
+                                };
+                            }
+                        } catch (apiError) {
+                            console.error("Gemini API error for linguistic analytics:", apiError);
+                            results.linguisticAnalytics = {
+                                avgSentenceLength: 'Error', avgWordLength: 'Error', sentiment: 'Error',
+                                complexityAssessment: 'Error', complexitySuggestions: 'Error',
+                                message: `API Error: ${apiError.message}`
+                            };
+                        }
+                    }
+
+                    // 4. Content Analysis (Client-side, enhanced)
+                    if (enableContentAnalysis) {
+                        const { wordCount, sentenceCount, paragraphCount, readabilityScore } = performContentAnalysis(textContent);
+                        results.contentAnalysis = {
+                            wordCount: wordCount,
+                            sentenceCount: sentenceCount,
+                            paragraphCount: paragraphCount,
+                            readabilityScore: `${readabilityScore.toFixed(1)} (Flesch-Kincaid)`,
+                            message: 'Basic content metrics and Flesch-Kincaid readability score calculated client-side.'
+                        };
+                    }
+
+                    // 5. Comprehension Analysis (via Gemini API)
+                    if (enableComprehensionAnalysis) {
+                        try {
+                            const chatHistory = [];
+                            chatHistory.push({ role: "user", parts: [{ text: `Analyze the following text for its reading comprehension level and identify any areas that might be difficult for a general audience. Provide an estimated reading level (e.g., 'Elementary', 'Middle School', 'High School', 'College', 'Professional') and specific suggestions for improving clarity and comprehension. Respond in JSON. Text: "${textContent}"` }] });
+                            const payload = {
+                                contents: chatHistory,
+                                generationConfig: {
+                                    responseMimeType: "application/json",
+                                    responseSchema: {
+                                        type: "OBJECT",
+                                        properties: {
+                                            "estimatedReadingLevel": { "type": "STRING" },
+                                            "claritySuggestions": {
+                                                type: "ARRAY",
+                                                items: { "type": "STRING" }
+                                            }
+                                        },
+                                        propertyOrdering: ["estimatedReadingLevel", "claritySuggestions"]
+                                    }
+                                }
+                            };
+                            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                            const response = await fetch(apiUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const result = await response.json();
+
+                            if (result.candidates && result.candidates.length > 0 &&
+                                result.candidates[0].content && result.candidates[0].content.parts &&
+                                result.candidates[0].content.parts.length > 0) {
+                                const json = result.candidates[0].content.parts[0].text;
+                                const parsedJson = JSON.parse(json);
+                                results.comprehensionAnalysis = {
+                                    readingLevel: parsedJson.estimatedReadingLevel || 'N/A',
+                                    suggestions: parsedJson.claritySuggestions && parsedJson.claritySuggestions.length > 0 ? parsedJson.claritySuggestions.join('. ') : 'No specific suggestions.',
+                                    message: 'Reading level and comprehension suggestions generated using Gemini API.'
+                                };
+                            } else {
+                                results.comprehensionAnalysis = { readingLevel: 'Error', suggestions: 'Error', message: 'Failed to get results from Gemini API.' };
+                            }
+                        } catch (apiError) {
+                            console.error("Gemini API error for comprehension analysis:", apiError);
+                            results.comprehensionAnalysis = { readingLevel: 'Error', suggestions: 'Error', message: `API Error: ${apiError.message}` };
+                        }
+                    }
+
+                    // 6. SEO Analysis (Client-side keyword checks + Gemini API for comprehensive suggestions)
+                    if (enableSeoAnalysis) {
+                        const { keywordDensity, keywordPresence, clientSideSeoSug } = performSeoAnalysis(textContent, targetKeyword);
+
+                        try {
+                            const chatHistory = [];
+                            chatHistory.push({ role: "user", parts: [{ text: `Based on the following content and target keyword "${targetKeyword}", provide advanced SEO optimization suggestions beyond basic keyword density. Focus on content structure, user intent, topical authority, and technical considerations. Respond in JSON. Content: "${textContent}"` }] });
+                            const payload = {
+                                contents: chatHistory,
+                                generationConfig: {
+                                    responseMimeType: "application/json",
+                                    responseSchema: {
+                                        type: "OBJECT",
+                                        properties: {
+                                            "advancedSeoSuggestions": {
+                                                type: "ARRAY",
+                                                items: { "type": "STRING" }
+                                            }
+                                        },
+                                        propertyOrdering: ["advancedSeoSuggestions"]
+                                    }
+                                }
+                            };
+                            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                            const response = await fetch(apiUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const result = await response.json();
+
+                            let advancedSeoSuggestions = [];
+                            if (result.candidates && result.candidates.length > 0 &&
+                                result.candidates[0].content && result.candidates[0].content.parts &&
+                                result.candidates[0].content.parts.length > 0) {
+                                const json = result.candidates[0].content.parts[0].text;
+                                const parsedJson = JSON.parse(json);
+                                advancedSeoSuggestions = parsedJson.advancedSeoSuggestions || [];
+                            } else {
+                                advancedSeoSuggestions.push('Failed to get advanced SEO suggestions from Gemini API.');
+                            }
+
+                            results.seoAnalysis = {
+                                keywordPresence: keywordPresence,
+                                keywordDensity: keywordDensity !== null ? `${keywordDensity.toFixed(2)}%` : 'N/A',
+                                seoSuggestions: [...clientSideSeoSug, ...advancedSeoSuggestions],
+                                message: 'SEO insights combine client-side checks and Gemini API for advanced suggestions.'
+                            };
+
+                        } catch (apiError) {
+                            console.error("Gemini API error for SEO analysis:", apiError);
+                            results.seoAnalysis = {
+                                keywordPresence: keywordPresence,
+                                keywordDensity: keywordDensity !== null ? `${keywordDensity.toFixed(2)}%` : 'N/A',
+                                seoSuggestions: [...clientSideSeoSug, `API Error for advanced suggestions: ${apiError.message}`],
+                                message: 'SEO insights combine client-side checks and Gemini API for advanced suggestions.'
+                            };
+                        }
+                    }
+
+                    setAnalysisResults(results);
+
+                } catch (err) {
+                    console.error("Analysis error:", err);
+                    setError("An error occurred during analysis. Please try again.");
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            // --- Client-Side Analysis Functions ---
+
+            // Calculate Bag-of-Words Similarity
+            const calculateBagOfWordsSimilarity = (text1, text2) => {
+                const words1 = new Set(text1.toLowerCase().match(/\b\w+\b/g) || []);
+                const words2 = new Set(text2.toLowerCase().match(/\b\w+\b/g) || []);
+                const intersection = new Set([...words1].filter(x => words2.has(x)));
+                const union = new Set([...words1, ...words2]);
+
+                if (union.size === 0) return 0;
+                return (intersection.size / union.size) * 100;
+            };
+
+            // Perform basic client-side linguistic analysis (avg sentence/word length)
+            const performClientSideLinguisticAnalysis = (text) => {
+                const sentences = text.split(/[.!?]\s*/).filter(s => s.trim().length > 0);
+                const words = text.match(/\b\w+\b/g) || [];
+                const totalWordLength = words.reduce((sum, word) => sum + word.length, 0);
+
+                const avgSentenceLength = sentences.length > 0 ? (words.length / sentences.length).toFixed(0) : 0;
+                const avgWordLength = words.length > 0 ? (totalWordLength / words.length) : 0;
+
+                return { avgSentenceLength, avgWordLength };
+            };
+
+            // Perform Content Analysis (Word count, sentence count, paragraph count, Flesch-Kincaid readability)
+            const performContentAnalysis = (text) => {
+                const words = text.match(/\b\w+\b/g) || [];
+                const sentences = text.split(/[.!?]\s*/).filter(s => s.trim().length > 0);
+                const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+
+                // Flesch-Kincaid Readability Formula
+                // 0.39 * (words / sentences) + 11.8 * (syllables / words) - 15.59
+                // Approximating syllables: count vowels as primary indicator, adjust for common patterns.
+                const countSyllables = (word) => {
+                    word = word.toLowerCase();
+                    if (word.length === 0) return 0;
+                    let count = 0;
+                    const vowels = 'aeiouy';
+                    if (vowels.includes(word[0])) {
+                        count++;
+                    }
+                    for (let i = 1; i < word.length; i++) {
+                        if (vowels.includes(word[i]) && !vowels.includes(word[i - 1])) {
+                            count++;
+                        }
+                    }
+                    if (word.endsWith('e')) {
+                        count--;
+                    }
+                    if (word.endsWith('le') && word.length > 2 && !vowels.includes(word[word.length - 3])) {
+                        count++;
+                    }
+                    return Math.max(1, count); // Ensure at least 1 syllable per word
+                };
+
+                const totalSyllables = words.reduce((sum, word) => sum + countSyllables(word), 0);
+
+                const avgWordsPerSentence = sentences.length > 0 ? (words.length / sentences.length) : 0;
+                const avgSyllablesPerWord = words.length > 0 ? (totalSyllables / words.length) : 0;
+
+                const readabilityScore = 0.39 * avgWordsPerSentence + 11.8 * avgSyllablesPerWord - 15.59;
+
+                return {
+                    wordCount: words.length,
+                    sentenceCount: sentences.length,
+                    paragraphCount: paragraphs.length,
+                    readabilityScore: Math.max(0, readabilityScore) // Ensure score is not negative
+                };
+            };
+
+            // Perform client-side SEO Analysis (keyword density, basic suggestions)
+            const performSeoAnalysis = (text, keyword) => {
+                const words = text.toLowerCase().match(/\b\w+\b/g) || [];
+                const keywordLower = keyword.toLowerCase();
+                const keywordOccurrences = words.filter(word => word === keywordLower).length;
+                const totalWords = words.length;
+
+                let keywordDensity = null;
+                if (totalWords > 0 && keywordLower) {
+                    keywordDensity = (keywordOccurrences / totalWords) * 100;
+                }
+
+                const clientSideSeoSug = [];
+                let keywordPresence = 'Not detected';
+
+                if (keywordLower && keywordOccurrences > 0) {
+                    keywordPresence = `Detected (${keywordOccurrences} times)`;
+                    if (keywordDensity < 1 || keywordDensity > 3) {
+                        clientSideSeoSug.push(`Adjust keyword density for "${keyword}" (currently ${keywordDensity.toFixed(2)}%). Aim for 1-3%.`);
+                    }
+                } else if (keywordLower) {
+                    clientSideSeoSug.push(`Consider including the target keyword "${keyword}" in your content.`);
+                }
+
+                if (text.length < 500) {
+                    clientSideSeoSug.push('Content might be too short for comprehensive SEO. Aim for more depth (e.g., 800+ words).');
+                }
+                clientSideSeoSug.push('Ensure a clear H1 tag is present and unique (check your page source).');
+                clientSideSeoSug.push('Optimize your meta description to be concise and compelling for click-through rate (CTR).');
+                clientSideSeoSug.push('Include relevant internal links to other authoritative pages on your site.');
+                clientSideSeoSug.push('Include high-quality external links to reputable sources.');
+                clientSideSeoSug.push('Use descriptive alt text for all images to improve accessibility and SEO.');
+
+                return { keywordDensity, keywordPresence, clientSideSeoSug };
+            };
+
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 flex items-center justify-center p-4 font-inter">
+                    <div className="w-full max-w-4xl bg-white rounded-xl shadow-2xl p-8 space-y-8">
+                        {/* Title and Description */}
+                        <div className="text-center">
+                            <h1 className="text-4xl font-bold text-purple-800 mb-2">Content Insight Engine</h1>
+                            <p className="text-lg text-gray-600">Analyze your content for optimization, readability, and SEO effectiveness.</p>
+                        </div>
+
+                        {/* Input Section */}
+                        <div className="space-y-4">
+                            <label htmlFor="textContent" className="block text-xl font-semibold text-gray-700">Your Content:</label>
+                            <textarea
+                                id="textContent"
+                                className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 resize-y min-h-[150px] shadow-sm"
+                                placeholder="Paste your article, blog post, or any text here for analysis..."
+                                value={textContent}
+                                onChange={(e) => setTextContent(e.target.value)}
+                            ></textarea>
+
+                            <label htmlFor="comparisonText" className="block text-xl font-semibold text-gray-700">Comparison Content (for Cosine Similarity):</label>
+                            <textarea
+                                id="comparisonText"
+                                className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 resize-y min-h-[100px] shadow-sm"
+                                placeholder="Paste content here to compare for similarity (e.g., competitor's article, ideal content)..."
+                                value={comparisonText}
+                                onChange={(e) => setComparisonText(e.target.value)}
+                            ></textarea>
+
+                            <label htmlFor="targetKeyword" className="block text-xl font-semibold text-gray-700">Target Keyword (for SEO Analysis):</label>
+                            <input
+                                type="text"
+                                id="targetKeyword"
+                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 shadow-sm"
+                                placeholder="Enter your primary target keyword (e.g., 'advanced SEO tools')"
+                                value={targetKeyword}
+                                onChange={(e) => setTargetKeyword(e.target.value)}
+                            />
+                        </div>
+
+                        {/* Analysis Options */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    id="cosineSimilarity"
+                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                    checked={enableCosineSimilarity}
+                                    onChange={(e) => setEnableCosineSimilarity(e.target.checked)}
+                                />
+                                <label htmlFor="cosineSimilarity" className="ml-2 text-gray-700">Cosine Similarity (Bag-of-Words)</label>
+                            </div>
+                            <div className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    id="wordEmbedding"
+                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                    checked={enableWordEmbedding}
+                                    onChange={(e) => setEnableWordEmbedding(e.target.checked)}
+                                />
+                                <label htmlFor="wordEmbedding" className="ml-2 text-gray-700">Word Embedding Analysis (via API)</label>
+                            </div>
+                            <div className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    id="linguisticAnalytics"
+                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                    checked={enableLinguisticAnalytics}
+                                    onChange={(e) => setEnableLinguisticAnalytics(e.target.checked)}
+                                />
+                                <label htmlFor="linguisticAnalytics" className="ml-2 text-gray-700">Linguistic Analytics (via API)</label>
+                            </div>
+                            <div className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    id="contentAnalysis"
+                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                    checked={enableContentAnalysis}
+                                    onChange={(e) => setEnableContentAnalysis(e.target.checked)}
+                                />
+                                <label htmlFor="contentAnalysis" className="ml-2 text-gray-700">Content Analysis (Client-side)</label>
+                            </div>
+                            <div className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    id="comprehensionAnalysis"
+                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                    checked={enableComprehensionAnalysis}
+                                    onChange={(e) => setEnableComprehensionAnalysis(e.target.checked)}
+                                />
+                                <label htmlFor="comprehensionAnalysis" className="ml-2 text-gray-700">Comprehension Analysis (via API)</label>
+                            </div>
+                            <div className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    id="seoAnalysis"
+                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                    checked={enableSeoAnalysis}
+                                    onChange={(e) => setEnableSeoAnalysis(e.target.checked)}
+                                />
+                                <label htmlFor="seoAnalysis" className="ml-2 text-gray-700">SEO Analysis (Mixed)</label>
+                            </div>
+                        </div>
+
+                        {/* Action Button */}
+                        <button
+                            onClick={performAnalysis}
+                            className={`w-full py-4 rounded-xl font-bold text-lg text-white transition-all duration-300 shadow-lg
+                                        ${isLoading
+                                        ? 'bg-gray-400 cursor-not-allowed'
+                                        : 'bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 transform hover:scale-105'
+                                        }`}
+                            disabled={isLoading}
+                        >
+                            {isLoading ? 'Analyzing Content...' : 'Analyze Content'}
+                        </button>
+
+                        {/* Error Message */}
+                        {error && (
+                            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative shadow-md" role="alert">
+                                <strong className="font-bold">Error!</strong>
+                                <span className="block sm:inline ml-2">{error}</span>
+                            </div>
+                        )}
+
+                        {/* Results Section */}
+                        {analysisResults && (
+                            <div className="bg-white p-6 rounded-xl shadow-inner border border-gray-200">
+                                <h2 className="text-3xl font-bold text-purple-800 mb-6 text-center">Analysis Results</h2>
+
+                                {analysisResults.cosineSimilarity && (
+                                    <div className="mb-6 pb-4 border-b border-gray-200">
+                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">Cosine Similarity</h3>
+                                        <p className="text-gray-600"><span className="font-medium">Similarity Score:</span> {analysisResults.cosineSimilarity.score}</p>
+                                        <p className="text-gray-600 mt-1">{analysisResults.cosineSimilarity.message}</p>
+                                    </div>
+                                )}
+
+                                {analysisResults.wordEmbedding && (
+                                    <div className="mb-6 pb-4 border-b border-gray-200">
+                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">Word Embedding Analysis</h3>
+                                        <p className="text-gray-600"><span className="font-medium">Key Terms:</span> {analysisResults.wordEmbedding.keyTerms}</p>
+                                        <p className="text-gray-600"><span className="font-medium">Semantic Summary:</span> {analysisResults.wordEmbedding.semanticSummary}</p>
+                                        <p className="text-gray-600 mt-1">{analysisResults.wordEmbedding.message}</p>
+                                    </div>
+                                )}
+
+                                {analysisResults.linguisticAnalytics && (
+                                    <div className="mb-6 pb-4 border-b border-gray-200">
+                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">Linguistic Analytics</h3>
+                                        <p className="text-gray-600"><span className="font-medium">Average Sentence Length:</span> {analysisResults.linguisticAnalytics.avgSentenceLength}</p>
+                                        <p className="text-gray-600"><span className="font-medium">Average Word Length:</span> {analysisResults.linguisticAnalytics.avgWordLength}</p>
+                                        <p className="text-gray-600"><span className="font-medium">Sentiment:</span> {analysisResults.linguisticAnalytics.sentiment}</p>
+                                        <p className="text-gray-600"><span className="font-medium">Complexity Assessment:</span> {analysisResults.linguisticAnalytics.complexityAssessment}</p>
+                                        <p className="text-gray-600 mt-1"><span className="font-medium">Complexity Suggestions:</span> {analysisResults.linguisticAnalytics.complexitySuggestions}</p>
+                                        <p className="text-gray-600 mt-1">{analysisResults.linguisticAnalytics.message}</p>
+                                    </div>
+                                )}
+
+                                {analysisResults.contentAnalysis && (
+                                    <div className="mb-6 pb-4 border-b border-gray-200">
+                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">Content Analysis</h3>
+                                        <p className="text-gray-600"><span className="font-medium">Word Count:</span> {analysisResults.contentAnalysis.wordCount}</p>
+                                        <p className="text-gray-600"><span className="font-medium">Sentence Count:</span> {analysisResults.contentAnalysis.sentenceCount}</p>
+                                        <p className="text-gray-600"><span className="font-medium">Paragraph Count:</span> {analysisResults.contentAnalysis.paragraphCount}</p>
+                                        <p className="text-gray-600"><span className="font-medium">Readability Score:</span> {analysisResults.contentAnalysis.readabilityScore}</p>
+                                        <p className="text-gray-600 mt-1">{analysisResults.contentAnalysis.message}</p>
+                                    </div>
+                                )}
+
+                                {analysisResults.comprehensionAnalysis && (
+                                    <div className="mb-6 pb-4 border-b border-gray-200">
+                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">Comprehension Analysis</h3>
+                                        <p className="text-gray-600"><span className="font-medium">Estimated Reading Level:</span> {analysisResults.comprehensionAnalysis.readingLevel}</p>
+                                        <p className="text-gray-600 mt-1"><span className="font-medium">Suggestions:</span> {analysisResults.comprehensionAnalysis.suggestions}</p>
+                                        <p className="text-gray-600 mt-1">{analysisResults.comprehensionAnalysis.message}</p>
+                                    </div>
+                                )}
+
+                                {analysisResults.seoAnalysis && (
+                                    <div className="mb-6 pb-4">
+                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">SEO Analysis</h3>
+                                        <p className="text-gray-600"><span className="font-medium">Target Keyword:</span> {targetKeyword || 'N/A'}</p>
+                                        <p className="text-gray-600"><span className="font-medium">Keyword Presence:</span> {analysisResults.seoAnalysis.keywordPresence}</p>
+                                        <p className="text-gray-600"><span className="font-medium">Keyword Density:</span> {analysisResults.seoAnalysis.keywordDensity}</p>
+                                        <div className="mt-2">
+                                            <p className="font-medium text-gray-700">SEO Suggestions:</p>
+                                            <ul className="list-disc list-inside text-gray-600 ml-4">
+                                                {analysisResults.seoAnalysis.seoSuggestions.map((suggestion, index) => (
+                                                    <li key={index}>{suggestion}</li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                        <p className="text-gray-600 mt-1">{analysisResults.seoAnalysis.message}</p>
+                                    </div>
+                                )}
+
+                                {Object.keys(analysisResults).length === 0 && (
+                                    <p className="text-gray-600 text-center">No analysis types selected or content provided.</p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // Render the App component into the 'root' div
+        // Using createRoot for React 18 compatibility
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(<App />);
+    </script>
+</body>
+</html>
