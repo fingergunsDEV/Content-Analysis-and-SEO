@@ -25,35 +25,219 @@
     <!-- Load Babel for JSX transpilation in the browser -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+    <!-- Load Firebase Libraries -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Expose Firebase objects globally for use in the Babel script
+        window.firebaseApp = initializeApp(JSON.parse(__firebase_config));
+        window.firebaseAuth = getAuth(window.firebaseApp);
+        window.firebaseDb = getFirestore(window.firebaseApp);
+        window.signInAnonymously = signInAnonymously;
+        window.signInWithCustomToken = signInWithCustomToken;
+        window.onAuthStateChanged = onAuthStateChanged;
+        window.signOut = signOut;
+        window.firebaseDoc = doc;
+        window.firebaseGetDoc = getDoc;
+        window.firebaseSetDoc = setDoc;
+
+        // Make __app_id available globally
+        window.__app_id = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Custom token sign-in or anonymous sign-in
+        window.onload = async () => {
+            if (typeof __initial_auth_token !== 'undefined') {
+                try {
+                    await window.signInWithCustomToken(window.firebaseAuth, __initial_auth_token);
+                } catch (error) {
+                    console.error("Error signing in with custom token:", error);
+                    await window.signInAnonymously(window.firebaseAuth);
+                }
+            } else {
+                await window.signInAnonymously(window.firebaseAuth);
+            }
+        };
+    </script>
+
+
     <!-- Your React App Component (type="text/babel" is crucial for in-browser transpilation) -->
     <script type="text/babel">
-        // Import useState from the global React object when using Babel standalone
-        const { useState } = React;
+        // Import React hooks from the global React object
+        const { useState, useEffect } = React;
 
-        // Main App component
+        // --- Helper Components ---
+
+        const LoadingSpinner = () => (
+            <div className="flex justify-center items-center h-full">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+                <p className="ml-4 text-gray-600">Loading application...</p>
+            </div>
+        );
+
+        const ProfileScreen = ({ user, username, setUsername, setIsEditingProfile, saveUserProfile, handleSignOut, isSaving }) => (
+            <div className="bg-white rounded-xl shadow-2xl p-8 space-y-6 max-w-md mx-auto">
+                <h2 className="text-3xl font-bold text-purple-800 text-center mb-4">User Profile</h2>
+                <div className="text-gray-700 text-lg">
+                    <p className="mb-2"><span className="font-semibold">User ID:</span> {user.uid}</p>
+                    <p className="mb-4"><span className="font-semibold">Current Username:</span> {username}</p>
+                </div>
+                <div className="flex flex-col space-y-4">
+                    <label htmlFor="editUsername" className="block text-xl font-semibold text-gray-700">Edit Username:</label>
+                    <input
+                        id="editUsername"
+                        type="text"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 shadow-sm"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        placeholder="Enter new username"
+                    />
+                    <button
+                        onClick={saveUserProfile}
+                        className={`w-full py-3 rounded-xl font-bold text-white transition-all duration-300 shadow-lg
+                                    ${isSaving
+                                    ? 'bg-gray-400 cursor-not-allowed'
+                                    : 'bg-gradient-to-r from-green-500 to-teal-600 hover:from-green-600 hover:to-teal-700 transform hover:scale-105'
+                                    }`}
+                        disabled={isSaving}
+                    >
+                        {isSaving ? 'Saving...' : 'Save Profile'}
+                    </button>
+                    <button
+                        onClick={() => setIsEditingProfile(false)}
+                        className="w-full py-3 rounded-xl font-bold text-purple-700 border border-purple-700 hover:bg-purple-50 transition-colors duration-200 shadow-md"
+                    >
+                        Back to Analyzer
+                    </button>
+                    <button
+                        onClick={handleSignOut}
+                        className="w-full py-3 rounded-xl font-bold text-red-700 border border-red-700 hover:bg-red-50 transition-colors duration-200 shadow-md"
+                    >
+                        Sign Out
+                    </button>
+                </div>
+            </div>
+        );
+
+        const AnalysisResultDisplay = ({ title, results, message, colorClass = "text-gray-700", bgColorClass = "bg-white" }) => (
+            <div className={`mb-6 pb-4 border-b border-gray-200 ${bgColorClass} p-4 rounded-lg`}>
+                <h3 className={`text-2xl font-semibold ${colorClass} mb-2`}>{title}</h3>
+                {Object.entries(results).map(([key, value]) => {
+                    if (Array.isArray(value)) {
+                        return (
+                            <div key={key} className="mt-2">
+                                <p className="font-medium text-gray-700 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}:</p>
+                                <ul className="list-disc list-inside text-gray-600 ml-4">
+                                    {value.length > 0 ? value.map((item, index) => (
+                                        <li key={index}>{item}</li>
+                                    )) : <li>No specific items.</li>}
+                                </ul>
+                            </div>
+                        );
+                    } else if (typeof value === 'string' || typeof value === 'number') {
+                        return <p key={key} className="text-gray-600"><span className="font-medium capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}:</span> {value}</p>;
+                    }
+                    return null;
+                })}
+                <p className="text-gray-600 mt-1">{message}</p>
+            </div>
+        );
+
+        // --- Main App Component ---
         const App = () => {
-            // State variables for text input and analysis results
+            // Core Application States
             const [textContent, setTextContent] = useState('');
             const [comparisonText, setComparisonText] = useState('');
+            const [targetKeyword, setTargetKeyword] = useState('');
             const [analysisResults, setAnalysisResults] = useState(null);
             const [isLoading, setIsLoading] = useState(false);
             const [error, setError] = useState('');
 
-            // State for selected analysis types
+            // Feature Toggle States
             const [enableCosineSimilarity, setEnableCosineSimilarity] = useState(false);
             const [enableWordEmbedding, setEnableWordEmbedding] = useState(false);
             const [enableLinguisticAnalytics, setEnableLinguisticAnalytics] = useState(false);
             const [enableContentAnalysis, setEnableContentAnalysis] = useState(false);
             const [enableComprehensionAnalysis, setEnableComprehensionAnalysis] = useState(false);
             const [enableSeoAnalysis, setEnableSeoAnalysis] = useState(false);
-            // New states for expanded features
             const [enableBlendedAnalysis, setEnableBlendedAnalysis] = useState(false);
             const [enableForecasting, setEnableForecasting] = useState(false);
             const [enableCompetitiveGap, setEnableCompetitiveGap] = useState(false);
 
+            // User & Auth States
+            const [user, setUser] = useState(null);
+            const [isAuthReady, setIsAuthReady] = useState(false);
+            const [username, setUsername] = useState('Guest User');
+            const [isEditingProfile, setIsEditingProfile] = useState(false);
+            const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-            // Placeholder for target keyword for SEO analysis
-            const [targetKeyword, setTargetKeyword] = useState('');
+
+            // Firebase Initialization and Auth State Listener
+            useEffect(() => {
+                if (window.firebaseAuth && window.onAuthStateChanged) {
+                    const unsubscribe = window.onAuthStateChanged(window.firebaseAuth, async (currentUser) => {
+                        setUser(currentUser);
+                        if (currentUser) {
+                            // Fetch user profile from Firestore
+                            const userId = currentUser.uid;
+                            const appId = window.__app_id;
+                            const userProfileRef = window.firebaseDoc(window.firebaseDb, `artifacts/${appId}/users/${userId}/profile/userProfileDoc`);
+                            const docSnap = await window.firebaseGetDoc(userProfileRef);
+
+                            if (docSnap.exists()) {
+                                setUsername(docSnap.data().username || 'Unnamed User');
+                            } else {
+                                // Create a basic profile if it doesn't exist
+                                const defaultUsername = `User-${userId.substring(0, 6)}`;
+                                await window.firebaseSetDoc(userProfileRef, { username: defaultUsername, createdAt: new Date() });
+                                setUsername(defaultUsername);
+                            }
+                        } else {
+                            setUsername('Guest User');
+                        }
+                        setIsAuthReady(true);
+                    });
+                    return () => unsubscribe(); // Cleanup subscription on unmount
+                }
+            }, []);
+
+            // Save User Profile to Firestore
+            const saveUserProfile = async () => {
+                if (user) {
+                    setIsSavingProfile(true);
+                    try {
+                        const userId = user.uid;
+                        const appId = window.__app_id;
+                        const userProfileRef = window.firebaseDoc(window.firebaseDb, `artifacts/${appId}/users/${userId}/profile/userProfileDoc`);
+                        await window.firebaseSetDoc(userProfileRef, { username: username }, { merge: true });
+                        alert('Profile saved successfully!'); // Replaced confirm with alert for consistency
+                    } catch (err) {
+                        console.error("Error saving profile:", err);
+                        alert('Failed to save profile. Please try again.'); // Replaced confirm with alert
+                    } finally {
+                        setIsSavingProfile(false);
+                    }
+                }
+            };
+
+            // Handle user sign out
+            const handleSignOut = async () => {
+                try {
+                    await window.signOut(window.firebaseAuth);
+                    setTextContent(''); // Clear content on sign out
+                    setComparisonText('');
+                    setAnalysisResults(null);
+                    setTargetKeyword('');
+                    setUsername('Guest User');
+                    setIsEditingProfile(false);
+                    alert('You have been signed out.'); // Replaced confirm with alert
+                } catch (error) {
+                    console.error("Error signing out:", error);
+                    alert('Error signing out. Please try again.'); // Replaced confirm with alert
+                }
+            };
+
 
             // Function to perform content analysis using Gemini API and client-side logic
             const performAnalysis = async () => {
@@ -678,298 +862,292 @@
             return (
                 <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 flex items-center justify-center p-4 font-inter">
                     <div className="w-full max-w-4xl bg-white rounded-xl shadow-2xl p-8 space-y-8">
-                        {/* Title and Description */}
-                        <div className="text-center">
-                            <h1 className="text-4xl font-bold text-purple-800 mb-2">Content Insight Engine</h1>
-                            <p className="text-lg text-gray-600">Analyze your content for optimization, readability, and SEO effectiveness.</p>
+                        {/* Header with Profile/Sign Out */}
+                        <div className="flex justify-between items-center mb-6">
+                            <div className="text-xl font-semibold text-gray-700">
+                                Welcome, {username}
+                            </div>
+                            <button
+                                onClick={() => setIsEditingProfile(!isEditingProfile)}
+                                className="px-4 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-colors duration-200 shadow-md"
+                            >
+                                {isEditingProfile ? 'Back to Analyzer' : 'Profile Settings'}
+                            </button>
                         </div>
 
-                        {/* Input Section */}
-                        <div className="space-y-4">
-                            <label htmlFor="textContent" className="block text-xl font-semibold text-gray-700">Your Content:</label>
-                            <textarea
-                                id="textContent"
-                                className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 resize-y min-h-[150px] shadow-sm"
-                                placeholder="Paste your article, blog post, or any text here for analysis..."
-                                value={textContent}
-                                onChange={(e) => setTextContent(e.target.value)}
-                            ></textarea>
-
-                            <label htmlFor="comparisonText" className="block text-xl font-semibold text-gray-700">Competitor/Ideal Content (for Comparison & Gap Analysis):</label>
-                            <textarea
-                                id="comparisonText"
-                                className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 resize-y min-h-[100px] shadow-sm"
-                                placeholder="Paste content here to compare for similarity and identify gaps (e.g., competitor's article, ideal content)..."
-                                value={comparisonText}
-                                onChange={(e) => setComparisonText(e.target.value)}
-                            ></textarea>
-
-                            <label htmlFor="targetKeyword" className="block text-xl font-semibold text-gray-700">Target Keyword (for SEO & Forecasting Analysis):</label>
-                            <input
-                                type="text"
-                                id="targetKeyword"
-                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 shadow-sm"
-                                placeholder="Enter your primary target keyword (e.g., 'advanced SEO tools')"
-                                value={targetKeyword}
-                                onChange={(e) => setTargetKeyword(e.target.value)}
+                        {/* Conditional Rendering based on Auth State and Profile Editing */}
+                        {!isAuthReady ? (
+                            <LoadingSpinner />
+                        ) : isEditingProfile ? (
+                            <ProfileScreen
+                                user={user}
+                                username={username}
+                                setUsername={setUsername}
+                                setIsEditingProfile={setIsEditingProfile}
+                                saveUserProfile={saveUserProfile}
+                                handleSignOut={handleSignOut}
+                                isSaving={isSavingProfile}
                             />
-                        </div>
+                        ) : (
+                            <>
+                                {/* Title and Description */}
+                                <div className="text-center">
+                                    <h1 className="text-4xl font-bold text-purple-800 mb-2">Content Insight Engine</h1>
+                                    <p className="text-lg text-gray-600">Analyze your content for optimization, readability, and SEO effectiveness.</p>
+                                </div>
 
-                        {/* Analysis Options */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            <div className="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="cosineSimilarity"
-                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
-                                    checked={enableCosineSimilarity}
-                                    onChange={(e) => setEnableCosineSimilarity(e.target.checked)}
-                                />
-                                <label htmlFor="cosineSimilarity" className="ml-2 text-gray-700">Cosine Similarity (Bag-of-Words)</label>
-                            </div>
-                            <div className="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="wordEmbedding"
-                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
-                                    checked={enableWordEmbedding}
-                                    onChange={(e) => setEnableWordEmbedding(e.target.checked)}
-                                />
-                                <label htmlFor="wordEmbedding" className="ml-2 text-gray-700">Word Embedding Analysis (via API)</label>
-                            </div>
-                            <div className="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="linguisticAnalytics"
-                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
-                                    checked={enableLinguisticAnalytics}
-                                    onChange={(e) => setEnableLinguisticAnalytics(e.target.checked)}
-                                />
-                                <label htmlFor="linguisticAnalytics" className="ml-2 text-gray-700">Linguistic Analytics (via API)</label>
-                            </div>
-                            <div className="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="contentAnalysis"
-                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
-                                    checked={enableContentAnalysis}
-                                    onChange={(e) => setEnableContentAnalysis(e.target.checked)}
-                                />
-                                <label htmlFor="contentAnalysis" className="ml-2 text-gray-700">Content Analysis (Client-side)</label>
-                            </div>
-                            <div className="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="comprehensionAnalysis"
-                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
-                                    checked={enableComprehensionAnalysis}
-                                    onChange={(e) => setEnableComprehensionAnalysis(e.target.checked)}
-                                />
-                                <label htmlFor="comprehensionAnalysis" className="ml-2 text-gray-700">Comprehension Analysis (via API)</label>
-                            </div>
-                            <div className="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="seoAnalysis"
-                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
-                                    checked={enableSeoAnalysis}
-                                    onChange={(e) => setEnableSeoAnalysis(e.target.checked)}
-                                />
-                                <label htmlFor="seoAnalysis" className="ml-2 text-gray-700">SEO Analysis (Mixed)</label>
-                            </div>
-                            {/* New Checkboxes */}
-                            <div className="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="blendedAnalysis"
-                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
-                                    checked={enableBlendedAnalysis}
-                                    onChange={(e) => setEnableBlendedAnalysis(e.target.checked)}
-                                />
-                                <label htmlFor="blendedAnalysis" className="ml-2 text-gray-700">Deeper Blended Analysis</label>
-                            </div>
-                            <div className="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="forecasting"
-                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
-                                    checked={enableForecasting}
-                                    onChange={(e) => setEnableForecasting(e.target.checked)}
-                                />
-                                <label htmlFor="forecasting" className="ml-2 text-gray-700">Forecasting & Strategy (via API)</label>
-                            </div>
-                            <div className="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="competitiveGap"
-                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
-                                    checked={enableCompetitiveGap}
-                                    onChange={(e) => setEnableCompetitiveGap(e.target.checked)}
-                                />
-                                <label htmlFor="competitiveGap" className="ml-2 text-gray-700">Competitive Gap Analysis (via API)</label>
-                            </div>
-                        </div>
+                                {/* Input Section */}
+                                <div className="space-y-4">
+                                    <label htmlFor="textContent" className="block text-xl font-semibold text-gray-700">Your Content:</label>
+                                    <textarea
+                                        id="textContent"
+                                        className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 resize-y min-h-[150px] shadow-sm"
+                                        placeholder="Paste your article, blog post, or any text here for analysis..."
+                                        value={textContent}
+                                        onChange={(e) => setTextContent(e.target.value)}
+                                    ></textarea>
 
-                        {/* Action Button */}
-                        <button
-                            onClick={performAnalysis}
-                            className={`w-full py-4 rounded-xl font-bold text-lg text-white transition-all duration-300 shadow-lg
-                                        ${isLoading
-                                        ? 'bg-gray-400 cursor-not-allowed'
-                                        : 'bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 transform hover:scale-105'
-                                        }`}
-                            disabled={isLoading}
-                        >
-                            {isLoading ? 'Analyzing Content...' : 'Analyze Content'}
-                        </button>
+                                    <label htmlFor="comparisonText" className="block text-xl font-semibold text-gray-700">Competitor/Ideal Content (for Comparison & Gap Analysis):</label>
+                                    <textarea
+                                        id="comparisonText"
+                                        className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 resize-y min-h-[100px] shadow-sm"
+                                        placeholder="Paste content here to compare for similarity and identify gaps (e.g., competitor's article, ideal content)..."
+                                        value={comparisonText}
+                                        onChange={(e) => setComparisonText(e.target.value)}
+                                    ></textarea>
 
-                        {/* Error Message */}
-                        {error && (
-                            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative shadow-md" role="alert">
-                                <strong className="font-bold">Error!</strong>
-                                <span className="block sm:inline ml-2">{error}</span>
-                            </div>
-                        )}
+                                    <label htmlFor="targetKeyword" className="block text-xl font-semibold text-gray-700">Target Keyword (for SEO & Forecasting Analysis):</label>
+                                    <input
+                                        type="text"
+                                        id="targetKeyword"
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 shadow-sm"
+                                        placeholder="Enter your primary target keyword (e.g., 'advanced SEO tools')"
+                                        value={targetKeyword}
+                                        onChange={(e) => setTargetKeyword(e.target.value)}
+                                    />
+                                </div>
 
-                        {/* Results Section */}
-                        {analysisResults && (
-                            <div className="bg-white p-6 rounded-xl shadow-inner border border-gray-200">
-                                <h2 className="text-3xl font-bold text-purple-800 mb-6 text-center">Analysis Results</h2>
+                                {/* Analysis Options */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    <div className="flex items-center">
+                                        <input
+                                            type="checkbox"
+                                            id="cosineSimilarity"
+                                            className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                            checked={enableCosineSimilarity}
+                                            onChange={(e) => setEnableCosineSimilarity(e.target.checked)}
+                                        />
+                                        <label htmlFor="cosineSimilarity" className="ml-2 text-gray-700">Cosine Similarity (Bag-of-Words)</label>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="checkbox"
+                                            id="wordEmbedding"
+                                            className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                            checked={enableWordEmbedding}
+                                            onChange={(e) => setEnableWordEmbedding(e.target.checked)}
+                                        />
+                                        <label htmlFor="wordEmbedding" className="ml-2 text-gray-700">Word Embedding Analysis (via API)</label>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="checkbox"
+                                            id="linguisticAnalytics"
+                                            className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                            checked={enableLinguisticAnalytics}
+                                            onChange={(e) => setEnableLinguisticAnalytics(e.target.checked)}
+                                        />
+                                        <label htmlFor="linguisticAnalytics" className="ml-2 text-gray-700">Linguistic Analytics (via API)</label>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="checkbox"
+                                            id="contentAnalysis"
+                                            className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                            checked={enableContentAnalysis}
+                                            onChange={(e) => setEnableContentAnalysis(e.target.checked)}
+                                        />
+                                        <label htmlFor="contentAnalysis" className="ml-2 text-gray-700">Content Analysis (Client-side)</label>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="checkbox"
+                                            id="comprehensionAnalysis"
+                                            className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                            checked={enableComprehensionAnalysis}
+                                            onChange={(e) => setEnableComprehensionAnalysis(e.target.checked)}
+                                        />
+                                        <label htmlFor="comprehensionAnalysis" className="ml-2 text-gray-700">Comprehension Analysis (via API)</label>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="checkbox"
+                                            id="seoAnalysis"
+                                            className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                            checked={enableSeoAnalysis}
+                                            onChange={(e) => setEnableSeoAnalysis(e.target.checked)}
+                                        />
+                                        <label htmlFor="seoAnalysis" className="ml-2 text-gray-700">SEO Analysis (Mixed)</label>
+                                    </div>
+                                    {/* New Checkboxes */}
+                                    <div className="flex items-center">
+                                        <input
+                                            type="checkbox"
+                                            id="blendedAnalysis"
+                                            className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                            checked={enableBlendedAnalysis}
+                                            onChange={(e) => setEnableBlendedAnalysis(e.target.checked)}
+                                        />
+                                        <label htmlFor="blendedAnalysis" className="ml-2 text-gray-700">Deeper Blended Analysis</label>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="checkbox"
+                                            id="forecasting"
+                                            className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                            checked={enableForecasting}
+                                            onChange={(e) => setEnableForecasting(e.target.checked)}
+                                        />
+                                        <label htmlFor="forecasting" className="ml-2 text-gray-700">Forecasting & Strategy (via API)</label>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="checkbox"
+                                            id="competitiveGap"
+                                            className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                            checked={enableCompetitiveGap}
+                                            onChange={(e) => setEnableCompetitiveGap(e.target.checked)}
+                                        />
+                                        <label htmlFor="competitiveGap" className="ml-2 text-gray-700">Competitive Gap Analysis (via API)</label>
+                                    </div>
+                                </div>
 
-                                {analysisResults.blendedAnalysis && (
-                                    <div className="mb-6 pb-4 border-b border-gray-200 bg-purple-50 p-4 rounded-lg">
-                                        <h3 className="text-2xl font-semibold text-purple-700 mb-2">Deeper Blended Analysis</h3>
-                                        <p className="text-gray-700"><span className="font-medium">Content Quality Score:</span> {analysisResults.blendedAnalysis.contentQualityScore}/100</p>
-                                        <p className="text-gray-700"><span className="font-medium">Optimization Score:</span> {analysisResults.blendedAnalysis.optimizationScore}/100</p>
-                                        <p className="text-gray-600 mt-1">{analysisResults.blendedAnalysis.message}</p>
+                                {/* Action Button */}
+                                <button
+                                    onClick={performAnalysis}
+                                    className={`w-full py-4 rounded-xl font-bold text-lg text-white transition-all duration-300 shadow-lg
+                                                ${isLoading
+                                                ? 'bg-gray-400 cursor-not-allowed'
+                                                : 'bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 transform hover:scale-105'
+                                                }`}
+                                    disabled={isLoading}
+                                >
+                                    {isLoading ? 'Analyzing Content...' : 'Analyze Content'}
+                                </button>
+
+                                {/* Error Message */}
+                                {error && (
+                                    <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative shadow-md" role="alert">
+                                        <strong className="font-bold">Error!</strong>
+                                        <span className="block sm:inline ml-2">{error}</span>
                                     </div>
                                 )}
 
-                                {analysisResults.forecasting && (
-                                    <div className="mb-6 pb-4 border-b border-gray-200 bg-blue-50 p-4 rounded-lg">
-                                        <h3 className="text-2xl font-semibold text-blue-700 mb-2">Forecasting & Strategy</h3>
-                                        <p className="text-gray-700"><span className="font-medium">Predicted Impact:</span> {analysisResults.forecasting.predictedImpact}</p>
-                                        <div className="mt-2">
-                                            <p className="font-medium text-gray-700">Strategic Suggestions:</p>
-                                            <ul className="list-disc list-inside text-gray-600 ml-4">
-                                                {analysisResults.forecasting.strategicSuggestions.map((suggestion, index) => (
-                                                    <li key={index}>{suggestion}</li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                        <p className="text-gray-600 mt-1">{analysisResults.forecasting.message}</p>
+                                {/* Results Section */}
+                                {analysisResults && (
+                                    <div className="bg-white p-6 rounded-xl shadow-inner border border-gray-200">
+                                        <h2 className="text-3xl font-bold text-purple-800 mb-6 text-center">Analysis Results</h2>
+
+                                        {analysisResults.blendedAnalysis && (
+                                            <AnalysisResultDisplay
+                                                title="Deeper Blended Analysis"
+                                                results={{
+                                                    'Content Quality Score': `${analysisResults.blendedAnalysis.contentQualityScore}/100`,
+                                                    'Optimization Score': `${analysisResults.blendedAnalysis.optimizationScore}/100`
+                                                }}
+                                                message={analysisResults.blendedAnalysis.message}
+                                                colorClass="text-purple-700"
+                                                bgColorClass="bg-purple-50"
+                                            />
+                                        )}
+
+                                        {analysisResults.forecasting && (
+                                            <AnalysisResultDisplay
+                                                title="Forecasting & Strategy"
+                                                results={{
+                                                    'Predicted Impact': analysisResults.forecasting.predictedImpact,
+                                                    'Strategic Suggestions': analysisResults.forecasting.strategicSuggestions
+                                                }}
+                                                message={analysisResults.forecasting.message}
+                                                colorClass="text-blue-700"
+                                                bgColorClass="bg-blue-50"
+                                            />
+                                        )}
+
+                                        {analysisResults.competitiveGap && (
+                                            <AnalysisResultDisplay
+                                                title="Competitive Gap Analysis"
+                                                results={{
+                                                    'Content Gaps Identified': analysisResults.competitiveGap.contentGaps,
+                                                    'Improvement Suggestions': analysisResults.competitiveGap.improvementSuggestions,
+                                                    'Unique Strengths/Leverage Points': analysisResults.competitiveGap.uniqueStrengths
+                                                }}
+                                                message={analysisResults.competitiveGap.message}
+                                                colorClass="text-green-700"
+                                                bgColorClass="bg-green-50"
+                                            />
+                                        )}
+
+                                        {/* Existing Analysis Sections remain below */}
+                                        {analysisResults.cosineSimilarity && (
+                                            <AnalysisResultDisplay
+                                                title="Cosine Similarity"
+                                                results={analysisResults.cosineSimilarity}
+                                                message={analysisResults.cosineSimilarity.message}
+                                            />
+                                        )}
+
+                                        {analysisResults.wordEmbedding && (
+                                            <AnalysisResultDisplay
+                                                title="Word Embedding Analysis"
+                                                results={analysisResults.wordEmbedding}
+                                                message={analysisResults.wordEmbedding.message}
+                                            />
+                                        )}
+
+                                        {analysisResults.linguisticAnalytics && (
+                                            <AnalysisResultDisplay
+                                                title="Linguistic Analytics"
+                                                results={analysisResults.linguisticAnalytics}
+                                                message={analysisResults.linguisticAnalytics.message}
+                                            />
+                                        )}
+
+                                        {analysisResults.contentAnalysis && (
+                                            <AnalysisResultDisplay
+                                                title="Content Analysis"
+                                                results={analysisResults.contentAnalysis}
+                                                message={analysisResults.contentAnalysis.message}
+                                            />
+                                        )}
+
+                                        {analysisResults.comprehensionAnalysis && (
+                                            <AnalysisResultDisplay
+                                                title="Comprehension Analysis"
+                                                results={analysisResults.comprehensionAnalysis}
+                                                message={analysisResults.comprehensionAnalysis.message}
+                                            />
+                                        )}
+
+                                        {analysisResults.seoAnalysis && (
+                                            <AnalysisResultDisplay
+                                                title="SEO Analysis"
+                                                results={{
+                                                    'Target Keyword': targetKeyword || 'N/A',
+                                                    'Keyword Presence': analysisResults.seoAnalysis.keywordPresence,
+                                                    'Keyword Density': analysisResults.seoAnalysis.keywordDensity,
+                                                    'SEO Suggestions': analysisResults.seoAnalysis.seoSuggestions
+                                                }}
+                                                message={analysisResults.seoAnalysis.message}
+                                            />
+                                        )}
+
+                                        {Object.keys(analysisResults).length === 0 && (
+                                            <p className="text-gray-600 text-center">No analysis types selected or content provided.</p>
+                                        )}
                                     </div>
                                 )}
-
-                                {analysisResults.competitiveGap && (
-                                    <div className="mb-6 pb-4 border-b border-gray-200 bg-green-50 p-4 rounded-lg">
-                                        <h3 className="text-2xl font-semibold text-green-700 mb-2">Competitive Gap Analysis</h3>
-                                        <div className="mt-2">
-                                            <p className="font-medium text-gray-700">Content Gaps Identified:</p>
-                                            <ul className="list-disc list-inside text-gray-600 ml-4">
-                                                {analysisResults.competitiveGap.contentGaps.length > 0 ?
-                                                    analysisResults.competitiveGap.contentGaps.map((gap, index) => (
-                                                        <li key={index}>{gap}</li>
-                                                    )) : <li>No specific content gaps identified or comparison text not provided.</li>
-                                                }
-                                            </ul>
-                                        </div>
-                                        <div className="mt-2">
-                                            <p className="font-medium text-gray-700">Improvement Suggestions:</p>
-                                            <ul className="list-disc list-inside text-gray-600 ml-4">
-                                                {analysisResults.competitiveGap.improvementSuggestions.length > 0 ?
-                                                    analysisResults.competitiveGap.improvementSuggestions.map((suggestion, index) => (
-                                                        <li key={index}>{suggestion}</li>
-                                                    )) : <li>No specific improvement suggestions.</li>
-                                                }
-                                            </ul>
-                                        </div>
-                                        <div className="mt-2">
-                                            <p className="font-medium text-gray-700">Unique Strengths/Leverage Points:</p>
-                                            <ul className="list-disc list-inside text-gray-600 ml-4">
-                                                {analysisResults.competitiveGap.uniqueStrengths.length > 0 ?
-                                                    analysisResults.competitiveGap.uniqueStrengths.map((strength, index) => (
-                                                        <li key={index}>{strength}</li>
-                                                    )) : <li>No specific unique strengths identified.</li>
-                                                }
-                                            </ul>
-                                        </div>
-                                        <p className="text-gray-600 mt-1">{analysisResults.competitiveGap.message}</p>
-                                    </div>
-                                )}
-
-                                {/* Existing Analysis Sections remain below */}
-                                {analysisResults.cosineSimilarity && (
-                                    <div className="mb-6 pb-4 border-b border-gray-200">
-                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">Cosine Similarity</h3>
-                                        <p className="text-gray-600"><span className="font-medium">Similarity Score:</span> {analysisResults.cosineSimilarity.score}</p>
-                                        <p className="text-gray-600 mt-1">{analysisResults.cosineSimilarity.message}</p>
-                                    </div>
-                                )}
-
-                                {analysisResults.wordEmbedding && (
-                                    <div className="mb-6 pb-4 border-b border-gray-200">
-                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">Word Embedding Analysis</h3>
-                                        <p className="text-gray-600"><span className="font-medium">Key Terms:</span> {analysisResults.wordEmbedding.keyTerms}</p>
-                                        <p className="text-gray-600"><span className="font-medium">Semantic Summary:</span> {analysisResults.wordEmbedding.semanticSummary}</p>
-                                        <p className="text-gray-600 mt-1">{analysisResults.wordEmbedding.message}</p>
-                                    </div>
-                                )}
-
-                                {analysisResults.linguisticAnalytics && (
-                                    <div className="mb-6 pb-4 border-b border-gray-200">
-                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">Linguistic Analytics</h3>
-                                        <p className="text-gray-600"><span className="font-medium">Average Sentence Length:</span> {analysisResults.linguisticAnalytics.avgSentenceLength}</p>
-                                        <p className="text-gray-600"><span className="font-medium">Average Word Length:</span> {analysisResults.linguisticAnalytics.avgWordLength}</p>
-                                        <p className="text-gray-600"><span className="font-medium">Sentiment:</span> {analysisResults.linguisticAnalytics.sentiment}</p>
-                                        <p className="text-gray-600"><span className="font-medium">Complexity Assessment:</span> {analysisResults.linguisticAnalytics.complexityAssessment}</p>
-                                        <p className="text-gray-600 mt-1"><span className="font-medium">Complexity Suggestions:</span> {analysisResults.linguisticAnalytics.complexitySuggestions}</p>
-                                        <p className="text-gray-600 mt-1">{analysisResults.linguisticAnalytics.message}</p>
-                                    </div>
-                                )}
-
-                                {analysisResults.contentAnalysis && (
-                                    <div className="mb-6 pb-4 border-b border-gray-200">
-                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">Content Analysis</h3>
-                                        <p className="text-gray-600"><span className="font-medium">Word Count:</span> {analysisResults.contentAnalysis.wordCount}</p>
-                                        <p className="text-gray-600"><span className="font-medium">Sentence Count:</span> {analysisResults.contentAnalysis.sentenceCount}</p>
-                                        <p className="text-gray-600"><span className="font-medium">Paragraph Count:</span> {analysisResults.contentAnalysis.paragraphCount}</p>
-                                        <p className="text-gray-600"><span className="font-medium">Readability Score:</span> {analysisResults.contentAnalysis.readabilityScore}</p>
-                                        <p className="text-gray-600 mt-1">{analysisResults.contentAnalysis.message}</p>
-                                    </div>
-                                )}
-
-                                {analysisResults.comprehensionAnalysis && (
-                                    <div className="mb-6 pb-4 border-b border-gray-200">
-                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">Comprehension Analysis</h3>
-                                        <p className="text-gray-600"><span className="font-medium">Estimated Reading Level:</span> {analysisResults.comprehensionAnalysis.readingLevel}</p>
-                                        <p className="text-gray-600 mt-1"><span className="font-medium">Suggestions:</span> {analysisResults.comprehensionAnalysis.suggestions}</p>
-                                        <p className="text-gray-600 mt-1">{analysisResults.comprehensionAnalysis.message}</p>
-                                    </div>
-                                )}
-
-                                {analysisResults.seoAnalysis && (
-                                    <div className="mb-6 pb-4">
-                                        <h3 className="text-2xl font-semibold text-gray-700 mb-2">SEO Analysis</h3>
-                                        <p className="text-gray-600"><span className="font-medium">Target Keyword:</span> {targetKeyword || 'N/A'}</p>
-                                        <p className="text-gray-600"><span className="font-medium">Keyword Presence:</span> {analysisResults.seoAnalysis.keywordPresence}</p>
-                                        <p className="text-gray-600"><span className="font-medium">Keyword Density:</span> {analysisResults.seoAnalysis.keywordDensity}</p>
-                                        <div className="mt-2">
-                                            <p className="font-medium text-gray-700">SEO Suggestions:</p>
-                                            <ul className="list-disc list-inside text-gray-600 ml-4">
-                                                {analysisResults.seoAnalysis.seoSuggestions.map((suggestion, index) => (
-                                                    <li key={index}>{suggestion}</li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                        <p className="text-gray-600 mt-1">{analysisResults.seoAnalysis.message}</p>
-                                    </div>
-                                )}
-
-                                {Object.keys(analysisResults).length === 0 && (
-                                    <p className="text-gray-600 text-center">No analysis types selected or content provided.</p>
-                                )}
-                            </div>
+                            </>
                         )}
                     </div>
                 </div>
