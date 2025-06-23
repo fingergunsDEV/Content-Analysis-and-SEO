@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Content Insight Engine</title>
-    <!-- Tailwind CSS CDN - Moved here to be loaded once by the browser -->
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Google Fonts for Inter - Moved here to be loaded once by the browser -->
+    <!-- Google Fonts for Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         /* Optional: Add custom styles here if needed, or rely solely on Tailwind */
@@ -46,6 +46,11 @@
             const [enableContentAnalysis, setEnableContentAnalysis] = useState(false);
             const [enableComprehensionAnalysis, setEnableComprehensionAnalysis] = useState(false);
             const [enableSeoAnalysis, setEnableSeoAnalysis] = useState(false);
+            // New states for expanded features
+            const [enableBlendedAnalysis, setEnableBlendedAnalysis] = useState(false);
+            const [enableForecasting, setEnableForecasting] = useState(false);
+            const [enableCompetitiveGap, setEnableCompetitiveGap] = useState(false);
+
 
             // Placeholder for target keyword for SEO analysis
             const [targetKeyword, setTargetKeyword] = useState('');
@@ -80,6 +85,8 @@
                     }
 
                     // 2. Word Embedding Analysis (via Gemini API for key terms and semantic summary)
+                    let wordEmbeddingKeyTerms = 'N/A';
+                    let wordEmbeddingSemanticSummary = 'N/A';
                     if (enableWordEmbedding) {
                         try {
                             const chatHistory = [];
@@ -114,9 +121,11 @@
                                 result.candidates[0].content.parts.length > 0) {
                                 const json = result.candidates[0].content.parts[0].text;
                                 const parsedJson = JSON.parse(json);
+                                wordEmbeddingKeyTerms = parsedJson.keyTerms ? parsedJson.keyTerms.join(', ') : 'N/A';
+                                wordEmbeddingSemanticSummary = parsedJson.semanticSummary || 'N/A';
                                 results.wordEmbedding = {
-                                    keyTerms: parsedJson.keyTerms ? parsedJson.keyTerms.join(', ') : 'N/A',
-                                    semanticSummary: parsedJson.semanticSummary || 'N/A',
+                                    keyTerms: wordEmbeddingKeyTerms,
+                                    semanticSummary: wordEmbeddingSemanticSummary,
                                     message: 'Key terms and semantic summary generated using Gemini API for word embedding analysis.'
                                 };
                             } else {
@@ -129,6 +138,12 @@
                     }
 
                     // 3. Linguistic Analytics (via Gemini API for sentiment and complexity)
+                    let linguisticSentiment = 'N/A';
+                    let linguisticComplexityAssessment = 'N/A';
+                    let linguisticComplexitySuggestions = 'N/A';
+                    let linguisticAvgSentenceLength = 'N/A';
+                    let linguisticAvgWordLength = 'N/A';
+
                     if (enableLinguisticAnalytics) {
                         try {
                             const chatHistory = [];
@@ -163,13 +178,18 @@
                                 const parsedJson = JSON.parse(json);
 
                                 const { avgSentenceLength, avgWordLength } = performClientSideLinguisticAnalysis(textContent); // Keep client-side basic metrics
+                                linguisticAvgSentenceLength = `${avgSentenceLength} words`;
+                                linguisticAvgWordLength = `${avgWordLength.toFixed(1)} chars`;
+                                linguisticSentiment = parsedJson.sentiment || 'N/A';
+                                linguisticComplexityAssessment = parsedJson.complexityAssessment || 'N/A';
+                                linguisticComplexitySuggestions = parsedJson.complexitySuggestions || 'N/A';
 
                                 results.linguisticAnalytics = {
-                                    avgSentenceLength: `${avgSentenceLength} words`,
-                                    avgWordLength: `${avgWordLength.toFixed(1)} chars`,
-                                    sentiment: parsedJson.sentiment || 'N/A',
-                                    complexityAssessment: parsedJson.complexityAssessment || 'N/A',
-                                    complexitySuggestions: parsedJson.complexitySuggestions || 'N/A',
+                                    avgSentenceLength: linguisticAvgSentenceLength,
+                                    avgWordLength: linguisticAvgWordLength,
+                                    sentiment: linguisticSentiment,
+                                    complexityAssessment: linguisticComplexityAssessment,
+                                    complexitySuggestions: linguisticComplexitySuggestions,
                                     message: 'Linguistic insights generated using Gemini API and client-side metrics.'
                                 };
                             } else {
@@ -190,18 +210,30 @@
                     }
 
                     // 4. Content Analysis (Client-side, enhanced)
+                    let contentWordCount = 0;
+                    let contentSentenceCount = 0;
+                    let contentParagraphCount = 0;
+                    let contentReadabilityScore = 0;
+
                     if (enableContentAnalysis) {
                         const { wordCount, sentenceCount, paragraphCount, readabilityScore } = performContentAnalysis(textContent);
+                        contentWordCount = wordCount;
+                        contentSentenceCount = sentenceCount;
+                        contentParagraphCount = paragraphCount;
+                        contentReadabilityScore = readabilityScore;
+
                         results.contentAnalysis = {
-                            wordCount: wordCount,
-                            sentenceCount: sentenceCount,
-                            paragraphCount: paragraphCount,
-                            readabilityScore: `${readabilityScore.toFixed(1)} (Flesch-Kincaid)`,
+                            wordCount: contentWordCount,
+                            sentenceCount: contentSentenceCount,
+                            paragraphCount: contentParagraphCount,
+                            readabilityScore: `${contentReadabilityScore.toFixed(1)} (Flesch-Kincaid)`,
                             message: 'Basic content metrics and Flesch-Kincaid readability score calculated client-side.'
                         };
                     }
 
                     // 5. Comprehension Analysis (via Gemini API)
+                    let comprehensionReadingLevel = 'N/A';
+                    let comprehensionSuggestions = 'N/A';
                     if (enableComprehensionAnalysis) {
                         try {
                             const chatHistory = [];
@@ -236,9 +268,11 @@
                                 result.candidates[0].content.parts.length > 0) {
                                 const json = result.candidates[0].content.parts[0].text;
                                 const parsedJson = JSON.parse(json);
+                                comprehensionReadingLevel = parsedJson.estimatedReadingLevel || 'N/A';
+                                comprehensionSuggestions = parsedJson.claritySuggestions && parsedJson.claritySuggestions.length > 0 ? parsedJson.claritySuggestions.join('. ') : 'No specific suggestions.';
                                 results.comprehensionAnalysis = {
-                                    readingLevel: parsedJson.estimatedReadingLevel || 'N/A',
-                                    suggestions: parsedJson.claritySuggestions && parsedJson.claritySuggestions.length > 0 ? parsedJson.claritySuggestions.join('. ') : 'No specific suggestions.',
+                                    readingLevel: comprehensionReadingLevel,
+                                    suggestions: comprehensionSuggestions,
                                     message: 'Reading level and comprehension suggestions generated using Gemini API.'
                                 };
                             } else {
@@ -251,12 +285,19 @@
                     }
 
                     // 6. SEO Analysis (Client-side keyword checks + Gemini API for comprehensive suggestions)
+                    let seoKeywordDensity = 'N/A';
+                    let seoKeywordPresence = 'N/A';
+                    let seoSuggestionsCombined = [];
+
                     if (enableSeoAnalysis) {
                         const { keywordDensity, keywordPresence, clientSideSeoSug } = performSeoAnalysis(textContent, targetKeyword);
+                        seoKeywordDensity = keywordDensity !== null ? `${keywordDensity.toFixed(2)}%` : 'N/A';
+                        seoKeywordPresence = keywordPresence;
+                        seoSuggestionsCombined.push(...clientSideSeoSug);
 
                         try {
                             const chatHistory = [];
-                            chatHistory.push({ role: "user", parts: [{ text: `Based on the following content and target keyword "${targetKeyword}", provide advanced SEO optimization suggestions beyond basic keyword density. Focus on content structure, user intent, topical authority, and technical considerations. Respond in JSON. Content: "${textContent}"` }] });
+                            chatHistory.push({ role: "user", parts: [{ text: `Based on the following content and target keyword "${targetKeyword}", provide advanced SEO optimization suggestions beyond basic keyword density. Focus on content structure, user intent, topical authority, and technical considerations. Respond in JSON with an array named 'advancedSeoSuggestions'. Content: "${textContent}"` }] });
                             const payload = {
                                 contents: chatHistory,
                                 generationConfig: {
@@ -291,22 +332,176 @@
                             } else {
                                 advancedSeoSuggestions.push('Failed to get advanced SEO suggestions from Gemini API.');
                             }
+                            seoSuggestionsCombined.push(...advancedSeoSuggestions);
 
                             results.seoAnalysis = {
-                                keywordPresence: keywordPresence,
-                                keywordDensity: keywordDensity !== null ? `${keywordDensity.toFixed(2)}%` : 'N/A',
-                                seoSuggestions: [...clientSideSeoSug, ...advancedSeoSuggestions],
+                                keywordPresence: seoKeywordPresence,
+                                keywordDensity: seoKeywordDensity,
+                                seoSuggestions: seoSuggestionsCombined,
                                 message: 'SEO insights combine client-side checks and Gemini API for advanced suggestions.'
                             };
 
                         } catch (apiError) {
                             console.error("Gemini API error for SEO analysis:", apiError);
+                            seoSuggestionsCombined.push(`API Error for advanced suggestions: ${apiError.message}`);
                             results.seoAnalysis = {
-                                keywordPresence: keywordPresence,
-                                keywordDensity: keywordDensity !== null ? `${keywordDensity.toFixed(2)}%` : 'N/A',
-                                seoSuggestions: [...clientSideSeoSug, `API Error for advanced suggestions: ${apiError.message}`],
+                                keywordPresence: seoKeywordPresence,
+                                keywordDensity: seoKeywordDensity,
+                                seoSuggestions: seoSuggestionsCombined,
                                 message: 'SEO insights combine client-side checks and Gemini API for advanced suggestions.'
                             };
+                        }
+                    }
+
+                    // 7. Blended Analysis (Client-side aggregation)
+                    if (enableBlendedAnalysis) {
+                        const qualityScore = calculateContentQualityScore({
+                            wordCount: contentWordCount,
+                            readabilityScore: contentReadabilityScore,
+                            sentiment: linguisticSentiment,
+                            keyTerms: wordEmbeddingKeyTerms,
+                            complexity: linguisticComplexityAssessment
+                        });
+                        const optimizationScore = calculateOptimizationScore({
+                            keywordDensity: seoKeywordDensity,
+                            keywordPresence: seoKeywordPresence,
+                            comprehensionLevel: comprehensionReadingLevel,
+                            semanticSummary: wordEmbeddingSemanticSummary
+                        });
+
+                        results.blendedAnalysis = {
+                            contentQualityScore: qualityScore,
+                            optimizationScore: optimizationScore,
+                            message: 'Overall content assessment based on combined metrics.'
+                        };
+                    }
+
+                    // 8. Forecasting & Strategy (via Gemini API)
+                    if (enableForecasting) {
+                        try {
+                            const chatHistory = [];
+                            const prompt = `Based on the following content:
+                            - Target Keyword: "${targetKeyword}"
+                            - Word Count: ${contentWordCount}
+                            - Readability Score (Flesch-Kincaid): ${contentReadabilityScore.toFixed(1)}
+                            - Key Terms: ${wordEmbeddingKeyTerms}
+                            - Sentiment: ${linguisticSentiment}
+                            - Linguistic Complexity: ${linguisticComplexityAssessment}
+
+                            What are the potential future impacts on SEO or user engagement based on this analysis, and what strategic next steps or content roadmap suggestions would you recommend for maximizing its performance? Focus on actionable insights. Respond in JSON with a 'predictedImpact' string and an array of 'strategicSuggestions'.`;
+
+                            chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+                            const payload = {
+                                contents: chatHistory,
+                                generationConfig: {
+                                    responseMimeType: "application/json",
+                                    responseSchema: {
+                                        type: "OBJECT",
+                                        properties: {
+                                            "predictedImpact": { "type": "STRING" },
+                                            "strategicSuggestions": {
+                                                type: "ARRAY",
+                                                items: { "type": "STRING" }
+                                            }
+                                        },
+                                        propertyOrdering: ["predictedImpact", "strategicSuggestions"]
+                                    }
+                                }
+                            };
+                            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                            const response = await fetch(apiUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const result = await response.json();
+
+                            if (result.candidates && result.candidates.length > 0 &&
+                                result.candidates[0].content && result.candidates[0].content.parts &&
+                                result.candidates[0].content.parts.length > 0) {
+                                const json = result.candidates[0].content.parts[0].text;
+                                const parsedJson = JSON.parse(json);
+                                results.forecasting = {
+                                    predictedImpact: parsedJson.predictedImpact || 'N/A',
+                                    strategicSuggestions: parsedJson.strategicSuggestions && parsedJson.strategicSuggestions.length > 0 ? parsedJson.strategicSuggestions : ['No specific suggestions.'],
+                                    message: 'Future impact and strategy suggestions generated using Gemini API.'
+                                };
+                            } else {
+                                results.forecasting = { predictedImpact: 'Error', strategicSuggestions: ['Error'], message: 'Failed to get results from Gemini API.' };
+                            }
+                        } catch (apiError) {
+                            console.error("Gemini API error for forecasting:", apiError);
+                            results.forecasting = { predictedImpact: 'Error', strategicSuggestions: [`API Error: ${apiError.message}`], message: `API Error: ${apiError.message}` };
+                        }
+                    }
+
+                    // 9. Competitive Gap Analysis (via Gemini API)
+                    if (enableCompetitiveGap) {
+                        if (!comparisonText.trim()) {
+                            results.competitiveGap = {
+                                contentGaps: [],
+                                improvementSuggestions: [],
+                                uniqueStrengths: [],
+                                message: 'Please provide competitor/ideal content for competitive gap analysis.'
+                            };
+                        } else {
+                            try {
+                                const chatHistory = [];
+                                const prompt = `Compare the 'Your Content' and 'Competitor/Ideal Content' provided. Identify key content gaps in 'Your Content' relative to the 'Competitor/Ideal Content', and suggest ways to bridge these gaps. Also, identify any unique strengths or angles in 'Your Content' that could be leveraged. Respond in JSON with an array of 'contentGaps', an array of 'improvementSuggestions', and an array of 'uniqueStrengths'.
+                                Your Content: "${textContent}"
+                                Competitor/Ideal Content: "${comparisonText}"`;
+
+                                chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+                                const payload = {
+                                    contents: chatHistory,
+                                    generationConfig: {
+                                        responseMimeType: "application/json",
+                                        responseSchema: {
+                                            type: "OBJECT",
+                                            properties: {
+                                                "contentGaps": {
+                                                    type: "ARRAY",
+                                                    items: { "type": "STRING" }
+                                                },
+                                                "improvementSuggestions": {
+                                                    type: "ARRAY",
+                                                    items: { "type": "STRING" }
+                                                },
+                                                "uniqueStrengths": {
+                                                    type: "ARRAY",
+                                                    items: { "type": "STRING" }
+                                                }
+                                            },
+                                            propertyOrdering: ["contentGaps", "improvementSuggestions", "uniqueStrengths"]
+                                        }
+                                    }
+                                };
+                                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                                const response = await fetch(apiUrl, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(payload)
+                                });
+                                const result = await response.json();
+
+                                if (result.candidates && result.candidates.length > 0 &&
+                                    result.candidates[0].content && result.candidates[0].content.parts &&
+                                    result.candidates[0].content.parts.length > 0) {
+                                    const json = result.candidates[0].content.parts[0].text;
+                                    const parsedJson = JSON.parse(json);
+                                    results.competitiveGap = {
+                                        contentGaps: parsedJson.contentGaps || [],
+                                        improvementSuggestions: parsedJson.improvementSuggestions || [],
+                                        uniqueStrengths: parsedJson.uniqueStrengths || [],
+                                        message: 'Competitive gap analysis generated using Gemini API.'
+                                    };
+                                } else {
+                                    results.competitiveGap = { contentGaps: [], improvementSuggestions: [], uniqueStrengths: [], message: 'Failed to get results from Gemini API.' };
+                                }
+                            } catch (apiError) {
+                                console.error("Gemini API error for competitive gap:", apiError);
+                                results.competitiveGap = { contentGaps: [], improvementSuggestions: [], uniqueStrengths: [], message: `API Error: ${apiError.message}` };
+                            }
                         }
                     }
 
@@ -427,6 +622,58 @@
                 return { keywordDensity, keywordPresence, clientSideSeoSug };
             };
 
+            // Calculate Content Quality Score (Client-side blended analysis)
+            const calculateContentQualityScore = (metrics) => {
+                let score = 0;
+                // Readability: Higher is generally better for accessibility
+                if (metrics.readabilityScore >= 60) score += 20; // Easy to read
+                else if (metrics.readabilityScore >= 30) score += 10; // Readable
+                else score += 5; // Difficult
+
+                // Sentiment: Positive is often desired for content
+                if (metrics.sentiment === 'Positive') score += 15;
+                else if (metrics.sentiment === 'Neutral') score += 10;
+                else score += 5;
+
+                // Word Count: Adequate length
+                if (metrics.wordCount >= 800) score += 20;
+                else if (metrics.wordCount >= 400) score += 10;
+                else score += 5;
+
+                // Key Terms: Presence indicates relevance
+                if (metrics.keyTerms !== 'N/A' && metrics.keyTerms.length > 0) score += 15;
+
+                // Complexity: Balanced complexity can be good
+                if (metrics.complexity === 'Moderate') score += 10;
+                else if (metrics.complexity === 'Simple') score += 5;
+
+                // Normalize to a 0-100 scale (rough estimate)
+                return Math.min(100, Math.max(0, score * 100 / 80)).toFixed(0); // Max possible raw score ~80
+            };
+
+            // Calculate Optimization Score (Client-side blended analysis)
+            const calculateOptimizationScore = (metrics) => {
+                let score = 0;
+
+                // Keyword Density: Optimal range
+                const kd = parseFloat(metrics.keywordDensity);
+                if (!isNaN(kd) && kd >= 1 && kd <= 3) score += 20;
+                else if (!isNaN(kd) && ((kd > 0.5 && kd < 1) || (kd > 3 && kd < 5))) score += 10;
+
+                // Keyword Presence
+                if (metrics.keywordPresence.includes('Detected')) score += 15;
+
+                // Comprehension Level: Aligned with target audience
+                if (metrics.comprehensionLevel === 'Middle School' || metrics.comprehensionLevel === 'High School / College') score += 15; // Assuming general audience
+                else if (metrics.comprehensionLevel === 'Elementary School') score += 5;
+
+                // Semantic Summary indicates relevant content
+                if (metrics.semanticSummary !== 'N/A' && metrics.semanticSummary.length > 0) score += 10;
+
+                // Normalize to a 0-100 scale
+                return Math.min(100, Math.max(0, score * 100 / 60)).toFixed(0); // Max possible raw score ~60
+            };
+
 
             return (
                 <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 flex items-center justify-center p-4 font-inter">
@@ -448,16 +695,16 @@
                                 onChange={(e) => setTextContent(e.target.value)}
                             ></textarea>
 
-                            <label htmlFor="comparisonText" className="block text-xl font-semibold text-gray-700">Comparison Content (for Cosine Similarity):</label>
+                            <label htmlFor="comparisonText" className="block text-xl font-semibold text-gray-700">Competitor/Ideal Content (for Comparison & Gap Analysis):</label>
                             <textarea
                                 id="comparisonText"
                                 className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200 resize-y min-h-[100px] shadow-sm"
-                                placeholder="Paste content here to compare for similarity (e.g., competitor's article, ideal content)..."
+                                placeholder="Paste content here to compare for similarity and identify gaps (e.g., competitor's article, ideal content)..."
                                 value={comparisonText}
                                 onChange={(e) => setComparisonText(e.target.value)}
                             ></textarea>
 
-                            <label htmlFor="targetKeyword" className="block text-xl font-semibold text-gray-700">Target Keyword (for SEO Analysis):</label>
+                            <label htmlFor="targetKeyword" className="block text-xl font-semibold text-gray-700">Target Keyword (for SEO & Forecasting Analysis):</label>
                             <input
                                 type="text"
                                 id="targetKeyword"
@@ -530,6 +777,37 @@
                                 />
                                 <label htmlFor="seoAnalysis" className="ml-2 text-gray-700">SEO Analysis (Mixed)</label>
                             </div>
+                            {/* New Checkboxes */}
+                            <div className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    id="blendedAnalysis"
+                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                    checked={enableBlendedAnalysis}
+                                    onChange={(e) => setEnableBlendedAnalysis(e.target.checked)}
+                                />
+                                <label htmlFor="blendedAnalysis" className="ml-2 text-gray-700">Deeper Blended Analysis</label>
+                            </div>
+                            <div className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    id="forecasting"
+                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                    checked={enableForecasting}
+                                    onChange={(e) => setEnableForecasting(e.target.checked)}
+                                />
+                                <label htmlFor="forecasting" className="ml-2 text-gray-700">Forecasting & Strategy (via API)</label>
+                            </div>
+                            <div className="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    id="competitiveGap"
+                                    className="h-5 w-5 text-purple-600 rounded focus:ring-purple-500"
+                                    checked={enableCompetitiveGap}
+                                    onChange={(e) => setEnableCompetitiveGap(e.target.checked)}
+                                />
+                                <label htmlFor="competitiveGap" className="ml-2 text-gray-700">Competitive Gap Analysis (via API)</label>
+                            </div>
                         </div>
 
                         {/* Action Button */}
@@ -558,6 +836,69 @@
                             <div className="bg-white p-6 rounded-xl shadow-inner border border-gray-200">
                                 <h2 className="text-3xl font-bold text-purple-800 mb-6 text-center">Analysis Results</h2>
 
+                                {analysisResults.blendedAnalysis && (
+                                    <div className="mb-6 pb-4 border-b border-gray-200 bg-purple-50 p-4 rounded-lg">
+                                        <h3 className="text-2xl font-semibold text-purple-700 mb-2">Deeper Blended Analysis</h3>
+                                        <p className="text-gray-700"><span className="font-medium">Content Quality Score:</span> {analysisResults.blendedAnalysis.contentQualityScore}/100</p>
+                                        <p className="text-gray-700"><span className="font-medium">Optimization Score:</span> {analysisResults.blendedAnalysis.optimizationScore}/100</p>
+                                        <p className="text-gray-600 mt-1">{analysisResults.blendedAnalysis.message}</p>
+                                    </div>
+                                )}
+
+                                {analysisResults.forecasting && (
+                                    <div className="mb-6 pb-4 border-b border-gray-200 bg-blue-50 p-4 rounded-lg">
+                                        <h3 className="text-2xl font-semibold text-blue-700 mb-2">Forecasting & Strategy</h3>
+                                        <p className="text-gray-700"><span className="font-medium">Predicted Impact:</span> {analysisResults.forecasting.predictedImpact}</p>
+                                        <div className="mt-2">
+                                            <p className="font-medium text-gray-700">Strategic Suggestions:</p>
+                                            <ul className="list-disc list-inside text-gray-600 ml-4">
+                                                {analysisResults.forecasting.strategicSuggestions.map((suggestion, index) => (
+                                                    <li key={index}>{suggestion}</li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                        <p className="text-gray-600 mt-1">{analysisResults.forecasting.message}</p>
+                                    </div>
+                                )}
+
+                                {analysisResults.competitiveGap && (
+                                    <div className="mb-6 pb-4 border-b border-gray-200 bg-green-50 p-4 rounded-lg">
+                                        <h3 className="text-2xl font-semibold text-green-700 mb-2">Competitive Gap Analysis</h3>
+                                        <div className="mt-2">
+                                            <p className="font-medium text-gray-700">Content Gaps Identified:</p>
+                                            <ul className="list-disc list-inside text-gray-600 ml-4">
+                                                {analysisResults.competitiveGap.contentGaps.length > 0 ?
+                                                    analysisResults.competitiveGap.contentGaps.map((gap, index) => (
+                                                        <li key={index}>{gap}</li>
+                                                    )) : <li>No specific content gaps identified or comparison text not provided.</li>
+                                                }
+                                            </ul>
+                                        </div>
+                                        <div className="mt-2">
+                                            <p className="font-medium text-gray-700">Improvement Suggestions:</p>
+                                            <ul className="list-disc list-inside text-gray-600 ml-4">
+                                                {analysisResults.competitiveGap.improvementSuggestions.length > 0 ?
+                                                    analysisResults.competitiveGap.improvementSuggestions.map((suggestion, index) => (
+                                                        <li key={index}>{suggestion}</li>
+                                                    )) : <li>No specific improvement suggestions.</li>
+                                                }
+                                            </ul>
+                                        </div>
+                                        <div className="mt-2">
+                                            <p className="font-medium text-gray-700">Unique Strengths/Leverage Points:</p>
+                                            <ul className="list-disc list-inside text-gray-600 ml-4">
+                                                {analysisResults.competitiveGap.uniqueStrengths.length > 0 ?
+                                                    analysisResults.competitiveGap.uniqueStrengths.map((strength, index) => (
+                                                        <li key={index}>{strength}</li>
+                                                    )) : <li>No specific unique strengths identified.</li>
+                                                }
+                                            </ul>
+                                        </div>
+                                        <p className="text-gray-600 mt-1">{analysisResults.competitiveGap.message}</p>
+                                    </div>
+                                )}
+
+                                {/* Existing Analysis Sections remain below */}
                                 {analysisResults.cosineSimilarity && (
                                     <div className="mb-6 pb-4 border-b border-gray-200">
                                         <h3 className="text-2xl font-semibold text-gray-700 mb-2">Cosine Similarity</h3>
